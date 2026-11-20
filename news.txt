@@ -1,0 +1,11 @@
+# KFØKYL Digi news
+#
+# Each line below scrolls in the News ticker on the Conditions map,
+# for everyone running KFØKYL Digi 1.2.2 or later with News switched on.
+# The program checks this file about once an hour.
+#
+# One message per line. To make a message clickable, put | and a web
+# address after it, like this:
+#   KFØKYL Digi 1.2.2 is out! | https://github.com/ccoo26/KF0KYL-Digi/releases
+#
+# Lines starting with # are notes and don't show. Delete a line to take it down.
