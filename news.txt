@@ -9,4 +9,4 @@
 #   KFØKYL Digi 1.2.2 is out! | https://github.com/ccoo26/KF0KYL-Digi/releases
 #
 # Lines starting with # are notes and don't show. Delete a line to take it down.
-KF0KYL-Digi is #23 on pskreporter!! | https://pskreporter.info
+KF0KYL-Digi is #22 on pskreporter!! | https://pskreporter.info
