@@ -6,6 +6,7 @@
 #include <QToolTip>
 #include <QFontMetricsF>
 #include <QEvent>
+#include <QLabel>
 #include <cmath>
 
 #include "Win11Theme.hpp"
@@ -80,11 +81,51 @@ void ColourKeyStrip::set_chips_shown (bool on)
   update ();
 }
 
+// the title's real size, measured as it's drawn: bold, all capitals and
+// letter-spaced, which the label's own size hint doesn't allow for on every
+// system (Ubuntu's font cut "BAND ACTIVITY" short)
+QSize ColourKeyStrip::lead_size () const
+{
+  if (!lead_) return {};
+  lead_->ensurePolished ();
+  QSize size = lead_->sizeHint ();
+  if (auto * label = qobject_cast<QLabel *> (lead_))
+    {
+      auto f = label->font ();
+      f.setBold (true);
+      QString text = label->text ();
+      if (QFont::AllUppercase == f.capitalization ()) text = text.toUpper ();
+      // measure without spacing, then add the spacing ourselves
+      auto plain = f;
+      plain.setLetterSpacing (QFont::PercentageSpacing, 100.);
+      QFontMetricsF const fm {plain};
+      double const base = fm.horizontalAdvance (text);
+      double spacing = 0.;
+      if (QFont::PercentageSpacing == f.letterSpacingType ())
+        {
+          spacing = (f.letterSpacing () - 100.) / 100. * base;
+        }
+      else spacing = f.letterSpacing () * text.size ();
+      int const m = label->contentsMargins ().left () + label->contentsMargins ().right () + 2 * label->margin () + 6;
+      int const w = int (std::ceil (base + qMax (0., spacing))) + m;
+      size.setWidth (qMax (size.width (), w));
+      size.setHeight (qMax (size.height (), int (std::ceil (fm.height ())) + 2));
+    }
+  return size;
+}
+
+void ColourKeyStrip::place_lead ()
+{
+  if (!lead_) return;
+  auto const hint = lead_size ();
+  lead_->setGeometry (0, int ((row_height () - hint.height ()) / 2.), hint.width (), hint.height ());
+}
+
 double ColourKeyStrip::row_height () const
 {
   QFontMetricsF const fm {font ()};
   double h = fm.height () + 6;
-  if (lead_) h = qMax (h, double (lead_->sizeHint ().height ()));
+  if (lead_) h = qMax (h, double (lead_size ().height ()));
   return h;
 }
 
@@ -98,7 +139,7 @@ double ColourKeyStrip::place (double width) const
   QFontMetricsF const bfm {bold};
   double const line = row_height () + 3;
   double const ch = fm.height () + 4;
-  double x = lead_ ? lead_->sizeHint ().width () + 10 : 0.;
+  double x = lead_ ? lead_size ().width () + 10 : 0.;
   double y = 0.;
   for (auto& c : chips_)
     {
@@ -139,18 +180,14 @@ QSize ColourKeyStrip::sizeHint () const
 
 QSize ColourKeyStrip::minimumSizeHint () const
 {
-  int const w = lead_ ? lead_->sizeHint ().width () : 60;
+  int const w = lead_ ? lead_size ().width () : 60;
   return QSize {w, int (row_height ())};
 }
 
 void ColourKeyStrip::resizeEvent (QResizeEvent * e)
 {
   QWidget::resizeEvent (e);
-  if (lead_)
-    {
-      auto const hint = lead_->sizeHint ();
-      lead_->setGeometry (0, int ((row_height () - hint.height ()) / 2.), hint.width (), hint.height ());
-    }
+  place_lead ();
   // a different width can need a different number of lines
   if (heightForWidth (width ()) != height ()) updateGeometry ();
 }
@@ -218,6 +255,13 @@ void ColourKeyStrip::mouseReleaseEvent (QMouseEvent * e)
 
 bool ColourKeyStrip::event (QEvent * e)
 {
+  if (QEvent::LayoutRequest == e->type ())
+    {
+      // the title's text changed (another mode): make room for all of it
+      place_lead ();
+      updateGeometry ();
+      update ();
+    }
   if (QEvent::ToolTip == e->type ())
     {
       auto * he = static_cast<QHelpEvent *> (e);

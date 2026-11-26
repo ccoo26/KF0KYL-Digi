@@ -50,6 +50,8 @@ private:
   // where everything goes at this width; returns the height needed
   double place (double width) const;
   double row_height () const;
+  QSize lead_size () const;
+  void place_lead ();
   QVector<Chip> chips_;
   mutable QRectF edit_rect_;
   QWidget * lead_ {nullptr};

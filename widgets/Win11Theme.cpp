@@ -717,7 +717,14 @@ QSize Win11Theme::frame_extra (QWidget * w)
 // display scale could otherwise open it partly off the bottom
 void Win11Theme::fit_to_screen (QWidget * w)
 {
-  if (!w || w->isMaximized () || w->isFullScreen () || w->isMinimized ()) return;
+  // never touch a window that's maximized or full screen, even while it's
+  // minimized (Ubuntu briefly reports it as "normal" when it's restored)
+  if (!w || w->isMinimized ()
+      || w->windowState () & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) return;
+  if (auto * handle = w->windowHandle ())
+    {
+      if (handle->windowStates () & (Qt::WindowMaximized | Qt::WindowFullScreen | Qt::WindowMinimized)) return;
+    }
   QRect const avail = usable_area (w);
   if (!avail.isValid ()) return;
   QRect const inner = w->geometry ();
@@ -800,12 +807,13 @@ bool Win11Theme::eventFilter (QObject * obj, QEvent * e)
             }
         }
     }
-  if (e->type () == QEvent::Hide && !e->spontaneous ())
+  if (e->type () == QEvent::Close)
     {
-      // closed by the program (not minimized): fit it again next time it opens
+      // only a window that was really closed (not minimized or hidden for a
+      // moment) is checked against the screen again next time it opens
       if (auto * w = qobject_cast<QWidget *> (obj))
         {
-          if (w->isWindow () && !w->isMinimized ()) w->setProperty ("w11_fitted", false);
+          if (w->isWindow ()) w->setProperty ("w11_fitted", false);
         }
     }
 #ifdef Q_OS_WIN
