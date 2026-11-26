@@ -3534,6 +3534,15 @@ ConditionsWindow::ConditionsWindow (QSettings * settings, QWidget * parent)
 
 ConditionsWindow::~ConditionsWindow ()
 {
+  // shut the PSK Reporter live feed down quietly before the map and the
+  // rest of this window are taken apart: its "disconnected" news would
+  // otherwise try to redraw a map that's already gone (crash on close)
+  if (psk_live_)
+    {
+      psk_live_->disconnect (this);
+      delete psk_live_;
+      psk_live_ = nullptr;
+    }
 }
 
 QFrame * ConditionsWindow::make_box (QString const& key, QString const& title, QVBoxLayout *& body)

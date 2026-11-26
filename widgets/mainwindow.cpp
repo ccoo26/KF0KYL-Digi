@@ -4639,9 +4639,12 @@ void MainWindow::subProcessError (QProcess * process, QProcess::ProcessError)
 void MainWindow::closeEvent(QCloseEvent * e)
 {
   m_valid = false;              // suppresses subprocess errors
-  m_config.transceiver_offline ();
+  // save everything to disk first, before anything else shuts down, so
+  // nothing that goes wrong later in closing can lose your settings
   if (m_conditions) m_conditions->close ();     // saves its size and place
   writeSettings ();
+  m_settings->sync ();
+  m_config.transceiver_offline ();
   if(m_astroWidget) m_astroWidget.reset ();
   if(m_QSYMessageCreatorWidget) {
     QCloseEvent closeEvent;
@@ -5222,6 +5225,13 @@ void MainWindow::setup_tx_limits ()
                 "<p>∞ = keep trying until the Tx watchdog runs out.</p>").arg (n));
       m_txLimit[n] = spin;
       grid->addWidget (spin, 6 == n ? 6 : n, 3);
+      // saved the moment it changes, so a crash or a shutdown with the
+      // program open can't lose it
+      connect (spin, QOverload<int>::of (&QSpinBox::valueChanged), this, [this, n] (int value) {
+          CommonGroup group {m_settings};
+          m_settings->setValue (QString {"TxRepeatLimit%1"}.arg (n), value);
+          m_settings->sync ();
+        });
     }
 }
 

@@ -109,13 +109,25 @@ DisplayText::DisplayText(QWidget *parent)
 void DisplayText::update_hint ()
 {
   bool const show = hint_enabled_ && has_selection ();
-  int const h = show ? hint_->sizeHint ().height () : 0;
+  int h = 0;
+  if (show)
+    {
+      // measure with its own small font applied (Ubuntu's fonts are
+      // taller than Windows'), so the text is never clipped
+      hint_->ensurePolished ();
+      if (hint_->layout ()) hint_->layout ()->activate ();
+      h = qMax (hint_->sizeHint ().height (), hint_->minimumSizeHint ().height ());
+      for (auto * child : hint_->findChildren<QWidget *> ())
+        {
+          h = qMax (h, child->sizeHint ().height () + 2);
+        }
+    }
   setViewportMargins (0, 0, 0, h);
   if (show)
     {
-      auto const r = contentsRect ();
-      int const sb = verticalScrollBar ()->isVisible () ? verticalScrollBar ()->width () : 0;
-      hint_->setGeometry (r.left (), r.bottom () - h + 1, r.width () - sb, h);
+      // sit just under the text area, above any sideways scroll bar
+      auto const v = viewport ()->geometry ();
+      hint_->setGeometry (v.left (), v.bottom () + 1, v.width (), h);
       hint_->raise ();
     }
   hint_->setVisible (show);

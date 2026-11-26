@@ -161,6 +161,7 @@
 #include <QIntValidator>
 #include <QThread>
 #include <QTimer>
+#include <QShowEvent>
 #include <QStandardPaths>
 #include <QFont>
 #include <QFontDialog>
@@ -214,6 +215,7 @@
 #include "Network/NetworkServerLookup.hpp"
 #include "Network/FoxVerifier.hpp"
 #include "widgets/MessageBox.hpp"
+#include "widgets/Win11Theme.hpp"
 #include "validators/MaidenheadLocatorValidator.hpp"
 #include "validators/CallsignValidator.hpp"
 #include "Network/LotWUsers.hpp"
@@ -889,6 +891,7 @@ private:
   // off the screen
   void setup_scrolling_tabs ();
   void fit_to_screen ();
+  void showEvent (QShowEvent *) override;
   void update_display_color_widgets ();
   QString voicesPath_;
   bool send_to_eqsl_;
@@ -6160,10 +6163,23 @@ void Configuration::impl::fit_to_screen ()
 {
   // Big text makes every tab bigger. Let each tab ask for the room it
   // needs, but never more than the screen has; anything bigger scrolls.
-  auto const avail = QApplication::desktop ()->availableGeometry (parentWidget () ? parentWidget () : this);
-  auto const chrome = QSize {60, 150};      // tab bar, OK/Cancel and frame
-  auto const limit = avail.size () - chrome;
+  // The title bar, tab row and OK/Cancel are measured, not guessed, so
+  // OK/Cancel are always on the screen (Windows and Ubuntu alike).
+  if (isMaximized () || isFullScreen ()) return;
+  auto const avail = Win11Theme::usable_area (parentWidget () ? parentWidget () : this);
+  if (!avail.isValid ()) return;
+  auto const frame = Win11Theme::frame_extra (this);
+  auto const room = avail.size () - frame;            // inside the title bar and borders
   auto * tabs = ui_->configuration_tabs;
+  // what everything except the tab pages needs: let the pages shrink to
+  // nothing for a moment and ask the dialog for its smallest size
+  for (int i = 0; i < tabs->count (); ++i)
+    {
+      if (auto * scroll = qobject_cast<QScrollArea *> (tabs->widget (i))) scroll->setMinimumSize (0, 0);
+    }
+  setMinimumSize (0, 0);
+  auto const chrome = minimumSizeHint ();
+  auto const limit = (room - chrome).expandedTo ({100, 100});
   for (int i = 0; i < tabs->count (); ++i)
     {
       if (auto * scroll = qobject_cast<QScrollArea *> (tabs->widget (i)))
@@ -6173,14 +6189,25 @@ void Configuration::impl::fit_to_screen ()
           scroll->setMinimumSize (want.boundedTo (limit));
         }
     }
-  setMaximumSize (avail.size ());
+  setMaximumSize (room);
   auto g = geometry ();
-  auto const min = minimumSizeHint ().boundedTo (avail.size ());
-  g.setSize (g.size ().expandedTo (min).boundedTo (avail.size ()));
-  // keep it on the screen
-  if (g.right () > avail.right ()) g.moveRight (avail.right ());
-  if (g.bottom () > avail.bottom ()) g.moveBottom (avail.bottom ());
-  if (g.left () < avail.left ()) g.moveLeft (avail.left ());
-  if (g.top () < avail.top ()) g.moveTop (avail.top ());
+  auto const min = minimumSizeHint ().boundedTo (room);
+  g.setSize (g.size ().expandedTo (min).boundedTo (room));
+  // keep it on the screen, title bar included
+  auto const top_extra = frame.height () - frame.width () / 2;
+  auto const side = frame.width () / 2;
+  if (g.right () + side > avail.right ()) g.moveRight (avail.right () - side);
+  if (g.bottom () + side > avail.bottom ()) g.moveBottom (avail.bottom () - side);
+  if (g.left () - side < avail.left ()) g.moveLeft (avail.left () + side);
+  if (g.top () - top_extra < avail.top ()) g.moveTop (avail.top () + top_extra);
   setGeometry (g);
+}
+
+void Configuration::impl::showEvent (QShowEvent * e)
+{
+  QDialog::showEvent (e);
+  if (e->spontaneous ()) return;      // back from minimized: leave it as it was
+  // once more after the window system has added its title bar, now that
+  // its real size is known
+  QTimer::singleShot (150, this, [this] {if (isVisible ()) fit_to_screen ();});
 }

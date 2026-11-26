@@ -673,23 +673,57 @@ QString Win11Theme::inputBackground ()
 }
 
 
+QRect Win11Theme::usable_area (QWidget * w)
+{
+  QScreen * screen {nullptr};
+  if (w)
+    {
+      screen = QGuiApplication::screenAt (w->frameGeometry ().center ());
+      if (!screen && w->windowHandle ()) screen = w->windowHandle ()->screen ();
+    }
+  if (!screen) screen = QGuiApplication::primaryScreen ();
+  if (!screen) return {};
+  QRect avail = screen->availableGeometry ();
+#ifndef Q_OS_WIN
+  // some Linux desktops (Ubuntu on Wayland) report the whole screen as
+  // usable even though a top bar and dock sit on it: keep clear of the
+  // top bar at least
+  if (avail == screen->geometry () && avail.height () > 400) avail.setTop (avail.top () + 40);
+#endif
+  return avail;
+}
+
+QSize Win11Theme::frame_extra (QWidget * w)
+{
+  QSize extra {16, 40};
+  if (w)
+    {
+      auto const frame = w->frameGeometry ();
+      auto const inner = w->geometry ();
+      if (frame.height () > inner.height ())
+        {
+          extra = {frame.width () - inner.width (), frame.height () - inner.height ()};
+        }
+    }
+#ifndef Q_OS_WIN
+  // Ubuntu's title bars (and their shadows) are taller than the guess
+  extra = extra.expandedTo ({16, 48});
+#endif
+  return extra;
+}
+
 // keep a window inside the usable part of its screen (not under the
 // taskbar): a size saved on a bigger screen, a larger font or a higher
 // display scale could otherwise open it partly off the bottom
 void Win11Theme::fit_to_screen (QWidget * w)
 {
-  if (!w || w->isMaximized () || w->isFullScreen ()) return;
-  auto * screen = QGuiApplication::screenAt (w->frameGeometry ().center ());
-  if (!screen && w->windowHandle ()) screen = w->windowHandle ()->screen ();
-  if (!screen) screen = QGuiApplication::primaryScreen ();
-  if (!screen) return;
-  QRect const avail = screen->availableGeometry ();
-  QRect const frame = w->frameGeometry ();
+  if (!w || w->isMaximized () || w->isFullScreen () || w->isMinimized ()) return;
+  QRect const avail = usable_area (w);
+  if (!avail.isValid ()) return;
   QRect const inner = w->geometry ();
-  // the title bar and borders; guess them if the window system hasn't said yet
-  int extra_w = frame.width () - inner.width ();
-  int extra_h = frame.height () - inner.height ();
-  if (extra_h <= 0) {extra_w = 16; extra_h = 40;}
+  auto const fx = frame_extra (w);
+  int const extra_w = fx.width ();
+  int const extra_h = fx.height ();
   // leave it alone if every corner is on some screen's usable area, so a
   // window stretched across two monitors on purpose stays that way
   QRect const outer {inner.x () - extra_w / 2, inner.y () - (extra_h - extra_w / 2),
@@ -700,6 +734,7 @@ void Win11Theme::fit_to_screen (QWidget * w)
   };
   if (on_a_screen (outer.topLeft ()) && on_a_screen (outer.topRight ())
       && on_a_screen (outer.bottomLeft ()) && on_a_screen (outer.bottomRight ())
+      && inner.height () + extra_h <= avail.height ()
       && w->minimumSizeHint ().height () + extra_h <= avail.height ()) return;
   int const max_w = avail.width () - extra_w;
   int const max_h = avail.height () - extra_h;
@@ -746,7 +781,10 @@ bool Win11Theme::eventFilter (QObject * obj, QEvent * e)
             }
         }
     }
-  if (e->type () == QEvent::Show)
+  // a window coming back from minimized (a "spontaneous" show from the
+  // window system) is left exactly as it was: only fit a window when the
+  // program itself opens it
+  if (e->type () == QEvent::Show && !e->spontaneous ())
     {
       auto * w = qobject_cast<QWidget *> (obj);
       if (w && w->isWindow () && !w->property ("w11_fitted").toBool ())
@@ -762,11 +800,12 @@ bool Win11Theme::eventFilter (QObject * obj, QEvent * e)
             }
         }
     }
-  if (e->type () == QEvent::Hide)
+  if (e->type () == QEvent::Hide && !e->spontaneous ())
     {
+      // closed by the program (not minimized): fit it again next time it opens
       if (auto * w = qobject_cast<QWidget *> (obj))
         {
-          if (w->isWindow ()) w->setProperty ("w11_fitted", false);
+          if (w->isWindow () && !w->isMinimized ()) w->setProperty ("w11_fitted", false);
         }
     }
 #ifdef Q_OS_WIN

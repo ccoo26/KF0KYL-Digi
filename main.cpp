@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <ios>
 #include <locale>
+#include <functional>
 #include <fftw3.h>
 
 #include <QApplication>
@@ -37,6 +38,12 @@
 #include <QByteArray>
 #include <QBitArray>
 #include <QMetaType>
+#ifndef Q_OS_WIN
+#include <QSocketNotifier>
+#include <csignal>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #include "ExceptionCatchingApplication.hpp"
 #include "Logger.hpp"
@@ -129,6 +136,38 @@ namespace
           }
       }
   }
+
+#ifndef Q_OS_WIN
+  // Linux: when the computer shuts down, restarts or you log out, the
+  // program is told to stop (SIGTERM/SIGHUP). Close it the normal way
+  // then, so settings get saved, just as Windows does.
+  int stop_fds[2] {-1, -1};
+
+  void on_stop_signal (int)
+  {
+    char const c {1};
+    if (stop_fds[0] >= 0) {auto r = ::write (stop_fds[0], &c, 1); (void)r;}
+  }
+
+  QSocketNotifier * watch_for_stop (QObject * parent, std::function<void ()> on_stop)
+  {
+    if (stop_fds[0] < 0 && ::socketpair (AF_UNIX, SOCK_STREAM, 0, stop_fds)) return nullptr;
+    struct sigaction sa {};
+    sa.sa_handler = on_stop_signal;
+    sigemptyset (&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction (SIGTERM, &sa, nullptr);
+    sigaction (SIGHUP, &sa, nullptr);
+    auto * notifier = new QSocketNotifier {stop_fds[1], QSocketNotifier::Read, parent};
+    QObject::connect (notifier, &QSocketNotifier::activated, parent, [notifier, on_stop] {
+        char c;
+        auto r = ::read (stop_fds[1], &c, 1); (void)r;
+        notifier->setEnabled (false);
+        on_stop ();
+      });
+    return notifier;
+  }
+#endif
 
   // KF0KYL Digi keeps its settings and data under its own name so it can sit
   // alongside the official WSJT-X. The first time it runs, copy the WSJT-X
@@ -514,6 +553,13 @@ int main(int argc, char *argv[])
           // run the application UI
           MainWindow w(temp_dir, multiple, &multi_settings, &mem_jt9, downSampleFactor, &splash, env);
           w.show();
+#ifndef Q_OS_WIN
+          auto * stop_watch = watch_for_stop (&w, [&w, &a] {
+              w.close ();         // saves settings, as when you close it yourself
+              a.quit ();
+            });
+          (void)stop_watch;
+#endif
           splash.raise ();
           QObject::connect (&a, SIGNAL (lastWindowClosed()), &a, SLOT (quit()));
           result = a.exec();

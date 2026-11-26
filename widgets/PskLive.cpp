@@ -62,7 +62,13 @@ PskLive::PskLive (QObject * parent)
 
 PskLive::~PskLive ()
 {
+  // going away: stop listening to the socket first so closing it can't
+  // set off retries or "state changed" news to windows that are closing
   call_.clear ();
+  retry_->stop ();
+  ping_->stop ();
+  socket_->disconnect (this);
+  blockSignals (true);
   socket_->abort ();
 }
 

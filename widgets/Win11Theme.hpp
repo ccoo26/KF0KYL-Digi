@@ -5,6 +5,8 @@
 #include <QObject>
 #include <QString>
 #include <QFont>
+#include <QRect>
+#include <QSize>
 
 class QApplication;
 class QWidget;
@@ -42,6 +44,12 @@ public:
   // re-apply title bar attributes to one window
   static void updateTitleBar (QWidget *);
   static void fit_to_screen (QWidget *);
+  // the part of the screen a window may use (not under the taskbar, dock
+  // or Ubuntu's top bar)
+  static QRect usable_area (QWidget *);
+  // the title bar and borders the window system adds around a window
+  // (a safe guess until the window system has said)
+  static QSize frame_extra (QWidget *);
 
   // colours used by code that styles individual widgets
   static QString controlBackground ();  // normal button face
