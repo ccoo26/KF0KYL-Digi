@@ -5,6 +5,8 @@
 // the panel's title. Edit… opens Settings at the Colors tab.
 
 #include <QWidget>
+#include <QFont>
+#include <QString>
 #include <QVector>
 #include <QColor>
 #include <QRectF>
@@ -43,6 +45,7 @@ protected:
   void mouseDoubleClickEvent (QMouseEvent *) override;
   void resizeEvent (QResizeEvent *) override;
   bool event (QEvent *) override;
+  bool eventFilter (QObject *, QEvent *) override;
 
 private:
   struct Chip {QString text; QColor fg; QColor bg; DecodeHighlightingModel::Highlight type; mutable QRectF rect;};
@@ -51,6 +54,8 @@ private:
   double place (double width) const;
   double row_height () const;
   QSize lead_size () const;
+  QFont lead_font () const;
+  QString lead_text () const;
   void place_lead ();
   QVector<Chip> chips_;
   mutable QRectF edit_rect_;

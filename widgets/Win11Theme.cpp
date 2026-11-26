@@ -788,32 +788,64 @@ bool Win11Theme::eventFilter (QObject * obj, QEvent * e)
             }
         }
     }
-  // a window coming back from minimized (a "spontaneous" show from the
-  // window system) is left exactly as it was: only fit a window when the
-  // program itself opens it
-  if (e->type () == QEvent::Show && !e->spontaneous ())
+  // Keep each window on the screen. Ubuntu (Wayland) doesn't tell programs
+  // where their windows are, and can put a window back from minimized
+  // partly off the top; so every time a window shows it's checked against
+  // the screen -- except one that was full size, which goes back to full
+  // size instead.
+  auto is_fittable = [] (QWidget * w) {
+    if (!w || !w->isWindow ()) return false;
+    auto const type = w->windowType ();
+    return type == Qt::Window || type == Qt::Dialog;
+  };
+  if (e->type () == QEvent::WindowStateChange)
+    {
+      // remember how it looked last time it wasn't minimized
+      auto * w = qobject_cast<QWidget *> (obj);
+      if (is_fittable (w) && !(w->windowState () & Qt::WindowMinimized))
+        {
+          w->setProperty ("w11_full", int (w->windowState () & (Qt::WindowMaximized | Qt::WindowFullScreen)));
+        }
+    }
+  if (e->type () == QEvent::Hide)
     {
       auto * w = qobject_cast<QWidget *> (obj);
-      if (w && w->isWindow () && !w->property ("w11_fitted").toBool ())
+      if (is_fittable (w))
         {
-          auto const type = w->windowType ();
-          if (type == Qt::Window || type == Qt::Dialog)
+          int full = w->property ("w11_full").toInt ();
+          if (w->windowState () & (Qt::WindowMaximized | Qt::WindowFullScreen))
+            {
+              full = int (w->windowState () & (Qt::WindowMaximized | Qt::WindowFullScreen));
+            }
+          w->setProperty ("w11_full", full);
+          w->setProperty ("w11_was_hidden", true);
+        }
+    }
+  if (e->type () == QEvent::Show)
+    {
+      auto * w = qobject_cast<QWidget *> (obj);
+      if (is_fittable (w))
+        {
+          QPointer<QWidget> guard {w};
+          bool const coming_back = w->property ("w11_was_hidden").toBool ();
+          w->setProperty ("w11_was_hidden", false);
+          int const full = w->property ("w11_full").toInt ();
+          if (coming_back && full)
+            {
+              // it was full size: put it back to full size, nothing else
+              QTimer::singleShot (0, w, [guard, full] {
+                  if (!guard || guard->isMinimized ()) return;
+                  if ((full & Qt::WindowFullScreen) && !guard->isFullScreen ()) guard->showFullScreen ();
+                  else if ((full & Qt::WindowMaximized) && !guard->isMaximized ()) guard->showMaximized ();
+                });
+            }
+          else if (coming_back || !w->property ("w11_fitted").toBool ())
             {
               w->setProperty ("w11_fitted", true);
               fit_to_screen (w);
               // once more after the window system has added the title bar
-              QPointer<QWidget> guard {w};
               QTimer::singleShot (150, w, [guard] {if (guard) fit_to_screen (guard);});
             }
-        }
-    }
-  if (e->type () == QEvent::Close)
-    {
-      // only a window that was really closed (not minimized or hidden for a
-      // moment) is checked against the screen again next time it opens
-      if (auto * w = qobject_cast<QWidget *> (obj))
-        {
-          if (w->isWindow ()) w->setProperty ("w11_fitted", false);
         }
     }
 #ifdef Q_OS_WIN

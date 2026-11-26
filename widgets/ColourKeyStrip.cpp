@@ -71,6 +71,7 @@ void ColourKeyStrip::set_lead (QWidget * lead)
   lead_ = lead;
   lead_->setParent (this);
   lead_->show ();
+  lead_->installEventFilter (this);   // notice when the title is hidden or shown
   updateGeometry ();
 }
 
@@ -81,44 +82,36 @@ void ColourKeyStrip::set_chips_shown (bool on)
   update ();
 }
 
-// the title's real size, measured as it's drawn: bold, all capitals and
-// letter-spaced, which the label's own size hint doesn't allow for on every
-// system (Ubuntu's font cut "BAND ACTIVITY" short)
+// The title is drawn here by the strip itself, in the label's own font and
+// colour, never clipped, and measured with exactly the same font: on some
+// Ubuntu systems the label clipped "BAND ACTIVITY" short however wide it
+// was made. The label stays as a 0x0 holder for the text, font, colour
+// and on/off state, so the rest of the program keeps using it as before.
+QFont ColourKeyStrip::lead_font () const
+{
+  if (!lead_) return font ();
+  lead_->ensurePolished ();
+  return lead_->font ();
+}
+
+QString ColourKeyStrip::lead_text () const
+{
+  auto * label = qobject_cast<QLabel *> (lead_);
+  return label && !label->isHidden () ? label->text () : QString {};
+}
+
 QSize ColourKeyStrip::lead_size () const
 {
-  if (!lead_) return {};
-  lead_->ensurePolished ();
-  QSize size = lead_->sizeHint ();
-  if (auto * label = qobject_cast<QLabel *> (lead_))
-    {
-      auto f = label->font ();
-      f.setBold (true);
-      QString text = label->text ();
-      if (QFont::AllUppercase == f.capitalization ()) text = text.toUpper ();
-      // measure without spacing, then add the spacing ourselves
-      auto plain = f;
-      plain.setLetterSpacing (QFont::PercentageSpacing, 100.);
-      QFontMetricsF const fm {plain};
-      double const base = fm.horizontalAdvance (text);
-      double spacing = 0.;
-      if (QFont::PercentageSpacing == f.letterSpacingType ())
-        {
-          spacing = (f.letterSpacing () - 100.) / 100. * base;
-        }
-      else spacing = f.letterSpacing () * text.size ();
-      int const m = label->contentsMargins ().left () + label->contentsMargins ().right () + 2 * label->margin () + 6;
-      int const w = int (std::ceil (base + qMax (0., spacing))) + m;
-      size.setWidth (qMax (size.width (), w));
-      size.setHeight (qMax (size.height (), int (std::ceil (fm.height ())) + 2));
-    }
-  return size;
+  auto const text = lead_text ();
+  if (text.isEmpty ()) return {};
+  QFontMetricsF const fm {lead_font (), const_cast<ColourKeyStrip *> (this)};
+  // a little spare room in case the screen draws it a touch wider
+  return QSize {int (std::ceil (fm.horizontalAdvance (text) * 1.04)) + 6, int (std::ceil (fm.height ())) + 2};
 }
 
 void ColourKeyStrip::place_lead ()
 {
-  if (!lead_) return;
-  auto const hint = lead_size ();
-  lead_->setGeometry (0, int ((row_height () - hint.height ()) / 2.), hint.width (), hint.height ());
+  if (lead_) lead_->setGeometry (0, 0, 0, 0);
 }
 
 double ColourKeyStrip::row_height () const
@@ -139,7 +132,7 @@ double ColourKeyStrip::place (double width) const
   QFontMetricsF const bfm {bold};
   double const line = row_height () + 3;
   double const ch = fm.height () + 4;
-  double x = lead_ ? lead_size ().width () + 10 : 0.;
+  double x = lead_text ().isEmpty () ? 0. : lead_size ().width () + 10;
   double y = 0.;
   for (auto& c : chips_)
     {
@@ -180,7 +173,7 @@ QSize ColourKeyStrip::sizeHint () const
 
 QSize ColourKeyStrip::minimumSizeHint () const
 {
-  int const w = lead_ ? lead_size ().width () : 60;
+  int const w = lead_text ().isEmpty () ? 60 : lead_size ().width ();
   return QSize {w, int (row_height ())};
 }
 
@@ -197,6 +190,17 @@ void ColourKeyStrip::paintEvent (QPaintEvent *)
   QPainter p {this};
   p.setRenderHint (QPainter::Antialiasing);
   place (width ());
+  auto const title = lead_text ();
+  if (!title.isEmpty ())
+    {
+      p.save ();
+      p.setFont (lead_font ());
+      p.setPen (lead_->palette ().color (lead_->foregroundRole ()));
+      auto const ls = lead_size ();
+      QRectF const r {0., (row_height () - ls.height ()) / 2., double (ls.width ()), double (ls.height ())};
+      p.drawText (r, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextDontClip | Qt::TextSingleLine, title);
+      p.restore ();
+    }
   for (auto const& c : chips_)
     {
       if (c.rect.isNull ()) continue;
@@ -284,4 +288,15 @@ bool ColourKeyStrip::event (QEvent * e)
     }
   if (QEvent::Leave == e->type ()) update ();
   return QWidget::event (e);
+}
+
+bool ColourKeyStrip::eventFilter (QObject * obj, QEvent * e)
+{
+  if (obj == lead_ && (QEvent::Show == e->type () || QEvent::Hide == e->type ()
+                       || QEvent::FontChange == e->type () || QEvent::PaletteChange == e->type ()))
+    {
+      updateGeometry ();
+      update ();
+    }
+  return QWidget::eventFilter (obj, e);
 }
